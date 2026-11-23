@@ -1,7 +1,14 @@
-<main style="max-width:28rem;margin:12vh auto;padding:1.5rem;font-family:system-ui" id="login">
-<h1>ShiftMate admin</h1>
-<form id="credentials"><p><label>Email<br><input name="email" type="email" autocomplete="username" required></label></p>
-<p><label>Password<br><input name="password" type="password" autocomplete="current-password" required></label></p>
-<button class="btn btn-primary">Sign in</button></form>
-<p id="message" role="status"></p><a href="/signup">Worker shift registration</a>
-</main><script type="module" src="/login.js"></script>
+<div class="account-layout">
+  <aside class="account-story">
+    <a class="account-brand" href="/">shiftmate<span>WORKFORCE MANAGEMENT</span></a>
+    <div class="story-copy"><span class="eyebrow">EVERY SHIFT, IN SYNC</span><h1>A clearer day.<br>A stronger team.</h1><p>Your people, bookings and daily operations.<br>Connected in one workspace.</p>
+    <div class="shift-preview"><div class="preview-header"><span class="live-dot"></span> Your next shift <span>DAY SHIFT</span></div><strong>Ready for the day ahead.</strong><div class="preview-time">07:30 <span>AM</span><i>—</i>07:30 <span>PM</span></div><div class="preview-footer"><span>Warehouse operations</span><span>12-hour shift</span></div></div></div>
+    <p class="story-footer">Built for the people who keep things moving.</p>
+  </aside>
+  <main class="account-main">
+    <a class="back-link" href="/signup/">Worker registration ↗</a>
+    <section class="account-card" id="accountContent"></section>
+    <footer class="account-footer">ShiftMate · Warehouse workforce management</footer>
+  </main>
+</div>
+<script type="module" src="/login.js"></script>
