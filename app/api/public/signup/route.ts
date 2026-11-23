@@ -1,4 +1,4 @@
-import { database, isSameOrigin, json, readState, dateTodayKualaLumpur, type WorkspaceState } from "../../../../lib/shiftmate-api";
+import { saveState, isSameOrigin, json, readState, dateTodayKualaLumpur, type WorkspaceState } from "../../../../lib/shiftmate-api";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +25,6 @@ export async function POST(request: Request) {
   if (date < today || date > maxDate.toLocaleDateString("en-CA", { timeZone: "Asia/Kuala_Lumpur" })) return json({ error: "Choose a shift date within the next 30 days." }, 400);
 
   try {
-    const db = database();
     for (let attempt = 0; attempt < 5; attempt++) {
       const current = await readState();
       if (!current) return json({ error: "Shiftmate is not ready for sign-ups yet. Please contact the agency PIC." }, 503);
@@ -36,7 +35,7 @@ export async function POST(request: Request) {
       let worker = workerType === "existing" ? state.workers.find(w => w.workerId.toLowerCase() === workerId.toLowerCase()) : undefined;
       if (worker?.banned) return json({ error: "This worker ID is blocked. Contact your agency PIC." }, 403);
       if (worker && worker.agencyId !== agencyId) return json({ error: "That worker ID belongs to another agency. Ask the PIC to check the worker record." }, 403);
-      if (!worker && workerType === "existing" && state.workers.some(w => w.workerId.toLowerCase() === workerId.toLowerCase())) return json({ error: "That worker ID cannot be used for this agency." }, 403);
+      if (workerType === "existing" && (!worker || worker.phone.replace(/\D/g, "") !== phone.replace(/\D/g, ""))) return json({ error: "Check your registered worker ID and phone number." }, 400);
       const effectiveWorkerId = worker?.workerId || (workerType === "existing" ? workerId : "");
       const duplicate = worker && state.bookings.some(b => b.workerRef === worker!.id && b.date === date && b.shiftId === shiftId && ["confirmed", "pending", "completed"].includes(b.status));
       if (duplicate) return json({ error: "You already have a request or booking for this shift." }, 409);
@@ -48,17 +47,17 @@ export async function POST(request: Request) {
       if (booked >= quota) return json({ error: "This agency is full for that shift. Try another date, warehouse or shift." }, 409);
       if (!worker) {
         let generatedId = effectiveWorkerId;
-        if (workerType === "new") { do { generatedId = `SH-${Math.floor(1000 + Math.random() * 9000)}`; } while (state.workers.some(w => w.workerId === generatedId)); }
+        if (workerType === "new") { do { generatedId = `SH-${crypto.randomUUID().slice(0, 8).toUpperCase()}`; } while (state.workers.some(w => w.workerId === generatedId)); }
         worker = { id: `w-${crypto.randomUUID()}`, name, workerId: generatedId, agencyId, phone, isNew: workerType === "new", banned: false, joined: today };
         state.workers.push(worker);
-      } else { worker.name = name; worker.phone = phone; }
+      }
       const bookingId = nextId(state);
       state.bookings.unshift({ id: bookingId, workerRef: worker.id, agencyId, warehouseId, shiftId, date, status: "pending", createdAt: Date.now(), lateCancel: false, attendance: "unmarked" });
       state.activity = state.activity || [];
       state.activity.unshift({ message: `${worker.name} requested ${shiftId === "day" ? "Day shift" : "Night shift"} at ${warehouse.name}`, type: "booked", time: Date.now() });
       state.activity = state.activity.slice(0, 12);
-      const result = await db.prepare("UPDATE shiftmate_workspace_state SET revision = revision + 1, state_json = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2 AND revision = ?3").bind(JSON.stringify(state), "main", current.revision).run();
-      if (result.meta.changes) return json({ bookingId, workerId: worker.workerId, status: "Pending" }, 201);
+      const saved = await saveState(state, current.revision);
+      if (saved) return json({ bookingId, workerId: worker.workerId, status: "Pending" }, 201);
     }
     return json({ error: "The schedule changed while you were signing up. Please check availability and submit again." }, 409);
   } catch { return json({ error: "Shiftmate could not save this request. Please try again or contact your agency PIC." }, 503); }

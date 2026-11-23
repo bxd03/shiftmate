@@ -43,3 +43,8 @@ yarn-error.log*
 
 # OS metadata
 .DS_Store
+
+.netlify/
+hosting/node_modules/
+hosting/dist/
+hosting/functions/

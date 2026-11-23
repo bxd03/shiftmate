@@ -1,5 +1,4 @@
 (() => {
-  const KEY = 'shiftmate-workspace-v1';
   const SHIFT_RULES = [
     { id: 'day', name: 'Day shift', time: '7:30 AM – 7:30 PM', start: '07:30', tone: 'day' },
     { id: 'night', name: 'Night shift', time: '7:30 PM – 7:30 AM', start: '19:30', tone: 'night' }
@@ -10,6 +9,7 @@
   let remoteRevision = null;
   let sharedReady = false;
   let syncQueue = Promise.resolve();
+  let syncGeneration = 0;
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
   const isoToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
@@ -19,39 +19,7 @@
   const nowTime = () => new Intl.DateTimeFormat('en-MY',{hour:'numeric',minute:'2-digit'}).format(new Date());
   const escapeHtml = (s='') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const initials = (name='') => name.trim().split(/\s+/).slice(0,2).map(p=>p[0]||'').join('').toUpperCase();
-  const defaultData = () => {
-    const today = isoToday(), tomorrow = addDays(today,1), next = addDays(today,2);
-    const agencies = [
-      {id:'peak', name:'Peak Workforce', pic:'Aina Rahman', phone:'+60 12-345 0182', defaultQuota:12, tone:'teal', active:true},
-      {id:'swift', name:'SwiftStaff Agency', pic:'Daniel Lee', phone:'+60 11-208 5571', defaultQuota:9, tone:'blue', active:true},
-      {id:'nova', name:'Nova Crew Services', pic:'Farah Nordin', phone:'+60 17-660 3820', defaultQuota:7, tone:'coral', active:true}
-    ];
-    const warehouses = [
-      {id:'shah-alam',name:'Shah Alam Fulfilment Hub',city:'Shah Alam, Selangor',code:'SAH-01',tone:'',active:true,shifts:['day','night']},
-      {id:'sepang',name:'Sepang Sort Centre',city:'Sepang, Selangor',code:'SSC-04',tone:'teal-cover',active:true,shifts:['day','night']},
-      {id:'klang',name:'Klang Crossdock',city:'Klang, Selangor',code:'KCD-02',tone:'coral-cover',active:true,shifts:['day']}
-    ];
-    const workers = [
-      {id:'w1',name:'Aqil Hakim',workerId:'SH-2031',agencyId:'peak',phone:'012 551 0198',isNew:false,banned:false,joined:today},
-      {id:'w2',name:'Melissa Tan',workerId:'SH-1984',agencyId:'swift',phone:'016 334 7854',isNew:false,banned:false,joined:today},
-      {id:'w3',name:'Harith Iskandar',workerId:'SH-2068',agencyId:'nova',phone:'011 205 4991',isNew:false,banned:false,joined:today},
-      {id:'w4',name:'Nadia Sofea',workerId:'SH-2110',agencyId:'peak',phone:'017 944 3008',isNew:false,banned:false,joined:tomorrow},
-      {id:'w5',name:'Kevin Goh',workerId:'SH-1917',agencyId:'swift',phone:'012 770 6435',isNew:false,banned:true,banReason:'Repeated late cancellation without an approved reason',joined:today}
-    ];
-    const bookings = [
-      {id:'BK-1042',workerRef:'w1',agencyId:'peak',warehouseId:'shah-alam',shiftId:'day',date:today,status:'confirmed',createdAt:Date.now()-1000*60*18,lateCancel:false},
-      {id:'BK-1041',workerRef:'w2',agencyId:'swift',warehouseId:'shah-alam',shiftId:'day',date:today,status:'confirmed',createdAt:Date.now()-1000*60*49,lateCancel:false},
-      {id:'BK-1040',workerRef:'w3',agencyId:'nova',warehouseId:'sepang',shiftId:'day',date:today,status:'confirmed',createdAt:Date.now()-1000*60*93,lateCancel:false},
-      {id:'BK-1039',workerRef:'w4',agencyId:'peak',warehouseId:'sepang',shiftId:'night',date:today,status:'pending',createdAt:Date.now()-1000*60*150,lateCancel:false},
-      {id:'BK-1038',workerRef:'w5',agencyId:'swift',warehouseId:'klang',shiftId:'day',date:tomorrow,status:'confirmed',createdAt:Date.now()-1000*60*200,lateCancel:false},
-      {id:'BK-1037',workerRef:'w2',agencyId:'swift',warehouseId:'shah-alam',shiftId:'night',date:tomorrow,status:'confirmed',createdAt:Date.now()-1000*60*270,lateCancel:false},
-      {id:'BK-1036',workerRef:'w1',agencyId:'peak',warehouseId:'sepang',shiftId:'day',date:next,status:'confirmed',createdAt:Date.now()-1000*60*340,lateCancel:false}
-    ];
-    return {agencies,warehouses,workers,bookings,quotas:{},settings:{cancelWindow:90,requireReason:true,whatsappAlerts:true},activity:[]};
-  };
-  let db;
-  if (isPublicSignup) db = {agencies:[],warehouses:[],workers:[],bookings:[],quotas:{},settings:{cancelWindow:90,requireReason:true,whatsappAlerts:false},activity:[]};
-  else {try { db = JSON.parse(localStorage.getItem(KEY)) || defaultData(); } catch { db = defaultData(); }}
+  let db = { agencies: [], warehouses: [], workers: [], bookings: [], quotas: {}, settings: {cancelWindow:90,requireReason:true,whatsappAlerts:false}, activity: [] };
   let view = isPublicSignup ? 'worker-portal' : 'overview';
   let selectedDate = isoToday();
   let selectedWarehouse = 'all';
@@ -65,17 +33,20 @@
   const save = () => {
     if (isPublicSignup) return;
     const snapshot = JSON.stringify(db);
-    localStorage.setItem(KEY, snapshot);
-    if (!sharedReady) return;
+    const generation = syncGeneration;
+
+    if (!sharedReady) throw new Error('Reload the workspace to reconnect before saving.');
     syncQueue = syncQueue.then(async () => {
+      if (!sharedReady || generation !== syncGeneration) return;
       const response = await fetch('/api/state', {method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({revision:remoteRevision,state:JSON.parse(snapshot)})});
       if (response.status === 409) throw new Error('This workspace was changed in another session. Reload the latest shared data before continuing.');
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Shared workspace could not be saved.');
       remoteRevision = result.revision;
     }).catch(async error => {
+      syncGeneration++;
       sharedReady = false;
-      try { const latest = await fetch('/api/state',{cache:'no-store'}); if(latest.ok){const data=await latest.json();if(data?.state){db=data.state;remoteRevision=data.revision;localStorage.setItem(KEY,JSON.stringify(db));renderApp();}} } catch {}
+      try { const latest = await fetch('/api/state',{cache:'no-store'}); if(latest.ok){const data=await latest.json();if(data?.state){db=data.state;remoteRevision=data.revision;sharedReady=true;renderApp();}} } catch {}
       toast(error.message || 'Shared workspace could not be saved.','error');
     });
   };
@@ -182,7 +153,7 @@
   const pendingReviews = () => db.bookings.filter(b=>b.status==='cancelled'&&b.lateCancel&&!['approved','rejected'].includes(b.reviewStatus));
   const renderReviews = () => {const rows=pendingReviews().map(b=>`<tr><td><b>${escapeHtml(worker(b.workerRef)?.name||'Unknown')}</b><small style="display:block;color:#929bab;margin-top:3px">${escapeHtml(worker(b.workerRef)?.workerId||'')}</small></td><td>${escapeHtml(agency(b.agencyId)?.name||'—')}</td><td>${escapeHtml(warehouse(b.warehouseId)?.name||'—')}</td><td>${escapeHtml(shift(b.shiftId)?.name||'—')} · ${escapeHtml(formatDate(b.date))}</td><td>${escapeHtml(b.cancelReason||'No reason supplied')}</td><td><div class="table-actions"><button class="btn btn-small btn-teal" data-action="review-approve" data-id="${b.id}">Accept reason</button><button class="btn btn-small btn-danger" data-action="review-reject" data-id="${b.id}">Reject & block</button></div></td></tr>`).join('');return `${pageHead('AGENCY PIC WORKFLOW','Cancellation reviews','Review late cancellation reasons. Rejected reasons block future bookings until an agency PIC unblocks the worker.',`<button class="btn" data-nav="workers">Worker directory</button>`)}<section class="panel table-panel"><div class="panel-head"><div><div class="panel-title">Waiting for PIC decision <span class="muted">(${pendingReviews().length})</span></div><div class="panel-subtitle">The released slot remains available; decisions are recorded in the worker history.</div></div></div><div class="table-wrap"><table><thead><tr><th>Worker</th><th>Agency</th><th>Warehouse</th><th>Shift</th><th>Reason</th><th>Decision</th></tr></thead><tbody>${rows||'<tr><td colspan="6"><div class="empty-state"><b>No cancellation reviews pending</b>New late cancellations will appear here.</div></td></tr>'}</tbody></table></div></section>`;};
   const renderReports = () => {const day=db.bookings.filter(b=>b.date===selectedDate),confirmed=day.filter(b=>['confirmed','completed'].includes(b.status)),present=confirmed.filter(b=>b.attendance==='present').length,missed=confirmed.filter(b=>b.attendance==='no-show').length,coverage=confirmed.length?Math.round(confirmed.length/Math.max(1,day.length)*100):0;const byAgency=db.agencies.map(a=>{const list=day.filter(b=>b.agencyId===a.id);return `<div class="coverage-line"><span class="agency-dot" style="background:${a.tone==='blue'?'#7182f1':a.tone==='coral'?'#fa987b':'#3ebda8'}"></span><div class="agency-line-main"><b>${escapeHtml(a.name)}</b><small>${list.filter(b=>b.status==='cancelled').length} cancellations · ${list.filter(b=>b.attendance==='no-show').length} no-shows</small></div><span class="agency-line-count">${list.filter(b=>['confirmed','completed'].includes(b.status)).length} confirmed</span></div>`;}).join('');return `${pageHead('WORKFORCE ANALYTICS','Reports','Review bookings, attendance and agency coverage for one shift date.',`<select class="date-select" id="reportDate">${datesOptions(selectedDate)}</select><button class="btn btn-primary" data-action="export-report">⇩ Export report CSV</button>`)}<div class="metric-grid">${metric('Shift requests',day.length,'All statuses for the selected date')}${metric('Confirmed',confirmed.length,`${coverage}% of requests confirmed`,'blue')}${metric('Present',present,'Attendance recorded','coral')}${metric('No-shows',missed,'Requires agency follow-up','gold')}</div><div class="content-grid"><section class="panel"><div class="panel-head"><div><div class="panel-title">Agency performance</div><div class="panel-subtitle">Confirmed workers, cancellation and attendance</div></div></div><div class="coverage-body">${byAgency||'<div class="empty-inset">No agency records yet.</div>'}</div></section><section class="panel" style="padding:18px"><div class="panel-title">Shift coverage summary</div><div class="panel-subtitle">${escapeHtml(fullDate(selectedDate))}</div>${SHIFT_RULES.map(s=>{const n=confirmed.filter(b=>b.shiftId===s.id).length;return `<div class="setting-row"><div><b>${s.name}</b><p>${s.time}</p></div><b>${n} workers</b></div>`}).join('')}<button class="btn" data-nav="attendance">Open attendance register</button></section></div>`;};
-  const renderSettings = () => `${pageHead('WORKSPACE CONTROL','Rules & settings','Set cancellation expectations and manage your local demo data.')}<div class="settings-layout"><section class="panel" style="padding:18px 20px"><div class="panel-title">Cancellation policy</div><div class="panel-subtitle">The same rule appears in the worker sign-up view.</div><div class="setting-row"><div><b>Late cancellation review window</b><p>Require a reason when a worker cancels close to the shift start.</p></div><div style="display:flex;align-items:center;gap:8px"><input id="cancelWindow" type="number" min="15" max="720" value="${db.settings.cancelWindow}" style="width:68px;height:35px;border:1px solid var(--line);border-radius:8px;padding:0 8px"><span class="muted" style="font-size:10px">minutes</span></div></div><div class="setting-row"><div><b>Agency PIC review</b><p>Late cancellations stay flagged until a PIC reviews the reason.</p></div><button class="toggle ${db.settings.requireReason?'on':''}" data-action="toggle-setting" data-setting="requireReason" aria-label="Toggle late cancellation reason"></button></div><div class="setting-row"><div><b>WhatsApp message helper</b><p>Copy shift availability updates for agency worker groups.</p></div><button class="toggle ${db.settings.whatsappAlerts?'on':''}" data-action="toggle-setting" data-setting="whatsappAlerts" aria-label="Toggle WhatsApp helper"></button></div><div class="setting-row"><div><b>Save policy</b><p>Changes apply to new cancellation requests and sign-up guidance.</p></div><button class="btn btn-small btn-primary" data-action="save-settings">Save changes</button></div></section><section class="panel" style="padding:18px 20px"><div class="panel-title">Demo data</div><div class="panel-subtitle">Your demo records are stored in this browser.</div><div class="setting-row"><div><b>Export workspace data</b><p>Download workers, agencies, shifts and bookings as JSON.</p></div><button class="btn btn-small" data-action="export-data">⇩ Export</button></div><div class="setting-row"><div><b>Reset sample data</b><p>Restore the original sample workers and shift bookings.</p></div><button class="btn btn-small btn-danger" data-action="reset-data">Reset</button></div><p class="demo-note" style="text-align:left;line-height:1.5">This prototype stores its data locally in this browser. A shared production workspace needs a hosted database and role-based accounts before worker groups use it.</p></section></div>`;
+  const renderSettings = () => `${pageHead('WORKSPACE CONTROL','Rules & settings','Manage cancellation rules and export workspace records.')}<div class="settings-layout"><section class="panel" style="padding:18px 20px"><div class="panel-title">Cancellation policy</div><div class="panel-subtitle">The same rule appears in the worker sign-up view.</div><div class="setting-row"><div><b>Late cancellation review window</b><p>Require a reason when a worker cancels close to the shift start.</p></div><div style="display:flex;align-items:center;gap:8px"><input id="cancelWindow" type="number" min="15" max="720" value="${db.settings.cancelWindow}" style="width:68px;height:35px;border:1px solid var(--line);border-radius:8px;padding:0 8px"><span class="muted" style="font-size:10px">minutes</span></div></div><div class="setting-row"><div><b>Agency PIC review</b><p>Late cancellations stay flagged until a PIC reviews the reason.</p></div><button class="toggle ${db.settings.requireReason?'on':''}" data-action="toggle-setting" data-setting="requireReason" aria-label="Toggle late cancellation reason"></button></div><div class="setting-row"><div><b>WhatsApp message helper</b><p>Copy shift availability updates for agency worker groups.</p></div><button class="toggle ${db.settings.whatsappAlerts?'on':''}" data-action="toggle-setting" data-setting="whatsappAlerts" aria-label="Toggle WhatsApp helper"></button></div><div class="setting-row"><div><b>Save policy</b><p>Changes apply to new cancellation requests and sign-up guidance.</p></div><button class="btn btn-small btn-primary" data-action="save-settings">Save changes</button></div></section><section class="panel" style="padding:18px 20px"><div class="panel-title">Workspace data</div><div class="panel-subtitle">Your records are saved in the shared database.</div><div class="setting-row"><div><b>Export workspace data</b><p>Download workers, agencies, shifts and bookings as JSON.</p></div><button class="btn btn-small" data-action="export-data">⇩ Export</button></div></section></div>`;
   const renderApp = () => {
     const content=$('#pageContent');
     content.innerHTML=view==='worker-portal'?renderPortal():({overview:renderOverview,bookings:renderBookings,workers:renderWorkers,agencies:renderAgencies,warehouses:renderWarehouses,schedule:renderSchedule,attendance:renderAttendance,reviews:renderReviews,reports:renderReports,updates:renderUpdates,settings:renderSettings}[view]||renderOverview)();
@@ -247,8 +218,6 @@
       case 'export-data':download(`shiftmate-data-${isoToday()}.json`,JSON.stringify(db,null,2),'application/json');toast('Workspace data downloaded.');break;
       case 'toggle-setting':{const key=el.dataset.setting;db.settings[key]=!db.settings[key];save();renderApp();break;}
       case 'save-settings':{const val=Number($('#cancelWindow').value);if(!Number.isFinite(val)||val<15||val>720){toast('Choose a review window between 15 and 720 minutes.','error');break;}db.settings.cancelWindow=val;save();renderApp();toast('Cancellation policy saved.');break;}
-      case 'reset-data':openModal('Reset sample data?','This replaces the current browser demo records with the original sample workspace.','<p style="font-size:11px;color:#758195;line-height:1.55">Your current worker, agency, quota and booking changes in this browser will be removed.</p>',modalFoot('Keep my data','Reset demo','confirm-reset'));break;
-      case 'confirm-reset':db=defaultData();selectedDate=isoToday();selectedWarehouse='all';bookingSearch='';workerSearch='';save();closeModal();view='overview';renderApp();toast('Sample workspace restored.');break;
       case 'submit-admin-booking':{const f=$('#adminBookingForm');if(!f.reportValidity())break;try{const b=addBooking(Object.fromEntries(new FormData(f)));closeModal();renderApp();toast(`Booking ${b.id} created.`);}catch(e){toast(e.message,'error');}break;}
       case 'submit-new-worker':{const f=$('#newWorkerForm');if(!f.reportValidity())break;const v=Object.fromEntries(new FormData(f));const wid=v.workerId.trim()||makeWorkerId();if(db.workers.some(w=>w.workerId.toLowerCase()===wid.toLowerCase())){toast('That worker ID is already in use.','error');break;}db.workers.push({id:`w-${Date.now()}`,name:v.name.trim(),workerId:wid,agencyId:v.agencyId,phone:v.phone.trim(),isNew:!v.workerId.trim(),banned:false,joined:isoToday()});logActivity(`${v.name.trim()} was added to the worker directory`,'booked');save();closeModal();renderApp();toast(`Worker added · ${wid}`);break;}
       case 'submit-new-agency':{const f=$('#newAgencyForm');if(!f.reportValidity())break;const v=Object.fromEntries(new FormData(f));const a={id:`agency-${Date.now()}`,name:v.name.trim(),pic:v.pic.trim(),phone:v.phone.trim(),defaultQuota:Number(v.defaultQuota),tone:v.tone,active:true};db.agencies.push(a);save();closeModal();renderApp();toast(`${a.name} added.`);break;}
@@ -287,7 +256,7 @@
   document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
   $('#todayLabel').textContent=new Intl.DateTimeFormat('en-MY',{weekday:'short',day:'numeric',month:'short'}).format(new Date());
   const loadPublicWorkspace = async () => {try{const response=await fetch('/api/public/config',{cache:'no-store'}),config=await response.json();if(!response.ok)throw new Error(config.error||'Shiftmate sign-up is not ready yet.');db={agencies:config.agencies,warehouses:config.warehouses,workers:[],bookings:[],quotas:{},settings:{cancelWindow:config.settings.cancelWindow,requireReason:true,whatsappAlerts:false},activity:[]};renderApp();await refreshPortalAvailability();}catch(error){renderApp();const list=$('#signupAvailability');if(list)list.innerHTML=`<div class="empty-inset">${escapeHtml(error.message||'Shiftmate is not ready yet. Contact your agency PIC.')}</div>`;const submit=$('#workerSignupForm button[type=submit]');if(submit)submit.disabled=true;}};
-  const loadSharedAdmin = async () => {try{let response=await fetch('/api/state',{cache:'no-store'});if(!response.ok)throw new Error((await response.json()).error||'Admin access could not be verified.');let current=await response.json();if(current?.state){db=current.state;remoteRevision=current.revision;localStorage.setItem(KEY,JSON.stringify(db));sharedReady=true;renderApp();return;}response=await fetch('/api/state',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({revision:null,state:db})});if(response.status===201){current=await response.json();db=current.state;remoteRevision=current.revision;sharedReady=true;localStorage.setItem(KEY,JSON.stringify(db));renderApp();toast('Shared Shiftmate workspace is ready.');return;}if(response.status===409){current=await (await fetch('/api/state',{cache:'no-store'})).json();if(current?.state){db=current.state;remoteRevision=current.revision;sharedReady=true;localStorage.setItem(KEY,JSON.stringify(db));renderApp();return;}}throw new Error((await response.json().catch(()=>({}))).error||'Shared storage setup could not be completed.');}catch(error){sharedReady=false;toast(error.message||'Shared storage is unavailable.','error');}};
-  renderApp();
+  const loadSharedAdmin = async () => {try{let response=await fetch('/api/state',{cache:'no-store'});if(!response.ok)throw new Error((await response.json()).error||'Admin access could not be verified.');let current=await response.json();if(current?.state){db=current.state;remoteRevision=current.revision;sharedReady=true;renderApp();return;}response=await fetch('/api/state',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({revision:null,state:db})});if(response.status===201){current=await response.json();db=current.state;remoteRevision=current.revision;sharedReady=true;renderApp();toast('Shared Shiftmate workspace is ready.');return;}if(response.status===409){current=await (await fetch('/api/state',{cache:'no-store'})).json();if(current?.state){db=current.state;remoteRevision=current.revision;sharedReady=true;renderApp();return;}}throw new Error((await response.json().catch(()=>({}))).error||'Shared storage setup could not be completed.');}catch(error){sharedReady=false;toast(error.message||'Shared storage is unavailable.','error');}};
+  if (isPublicSignup) renderApp();
   if(isPublicSignup) void loadPublicWorkspace(); else void loadSharedAdmin();
 })();

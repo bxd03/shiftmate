@@ -1,0 +1,14 @@
+{
+  "name": "shiftmate-netlify",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "type": "module",
+  "dependencies": {
+    "@netlify/database": "^2.0.3",
+    "@netlify/identity": "^2.0.1",
+    "esbuild": "^0.28.2"
+  },
+  "private": true
+}

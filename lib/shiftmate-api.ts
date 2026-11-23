@@ -1,16 +1,8 @@
 import { env } from "cloudflare:workers";
 import { headers } from "next/headers";
 
-export type WorkspaceState = {
-  agencies: Array<{ id: string; name: string; pic?: string; phone?: string; defaultQuota?: number; tone?: string; active: boolean }>;
-  warehouses: Array<{ id: string; name: string; city?: string; code?: string; active: boolean; shifts: string[] }>;
-  workers: Array<{ id: string; name: string; workerId: string; agencyId: string; phone: string; banned?: boolean; banReason?: string; [key: string]: unknown }>;
-  bookings: Array<{ id: string; workerRef: string; agencyId: string; warehouseId: string; shiftId: string; date: string; status: string; createdAt: number; [key: string]: unknown }>;
-  quotas: Record<string, number>;
-  settings: { cancelWindow?: number; requireReason?: boolean; whatsappAlerts?: boolean; [key: string]: unknown };
-  activity?: Array<{ message: string; type: string; time: number }>;
-  [key: string]: unknown;
-};
+import type { WorkspaceState } from "./shiftmate-common";
+export * from "./shiftmate-common";
 
 export function database() {
   if (!env.DB) throw new Error("Shiftmate shared storage is not connected yet.");
@@ -26,21 +18,16 @@ export async function isOwner() {
   return ownerIdMatches || ownerEmailMatches;
 }
 
-export function json(data: unknown, status = 200) {
-  return Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
-}
-
-export function isSameOrigin(request: Request) {
-  const origin = request.headers.get("origin");
-  return !origin || origin === new URL(request.url).origin;
-}
-
 export async function readState() {
   const row = await database().prepare("SELECT revision, state_json FROM shiftmate_workspace_state WHERE id = ?1").bind("main").first<{ revision: number; state_json: string }>();
   if (!row) return null;
   return { revision: Number(row.revision), state: JSON.parse(row.state_json) as WorkspaceState };
 }
 
-export function dateTodayKualaLumpur() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+export async function saveState(state: WorkspaceState, revision: number | null) {
+  const db = database();
+  const result = revision === null
+    ? await db.prepare("INSERT OR IGNORE INTO shiftmate_workspace_state (id, revision, state_json, updated_at) VALUES ('main', 1, ?1, CURRENT_TIMESTAMP)").bind(JSON.stringify(state)).run()
+    : await db.prepare("UPDATE shiftmate_workspace_state SET revision = revision + 1, state_json = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = 'main' AND revision = ?2").bind(JSON.stringify(state), revision).run();
+  return result.meta.changes > 0;
 }
