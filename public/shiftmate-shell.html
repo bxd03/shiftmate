@@ -1,0 +1,43 @@
+<div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#overview" data-nav="overview" aria-label="Shiftmate home">
+        <span class="brand-mark"><span></span><span></span><span></span></span>
+        <span><strong>shiftmate</strong><small>WAREHOUSE OPS</small></span>
+      </a>
+      <button type="button" class="workspace-switcher" data-action="workspace" aria-label="Current workspace: Northstar Logistics">
+        <span class="workspace-icon">N</span>
+        <span class="workspace-label"><b>Northstar Logistics</b><small>Operations workspace</small></span>
+        <span class="chevron">⌄</span>
+      </button>
+      <nav class="nav-groups" aria-label="Main navigation">
+        <p class="nav-caption">WORKSPACE</p>
+        <button class="nav-link active" data-nav="overview"><span class="nav-icon">▦</span>Overview</button>
+        <button class="nav-link" data-nav="bookings"><span class="nav-icon">▤</span>Shift bookings <span class="nav-count" id="bookingNavCount">0</span></button>
+        <button class="nav-link" data-nav="workers"><span class="nav-icon">♙</span>Workers</button>
+        <button class="nav-link" data-nav="agencies"><span class="nav-icon">◈</span>Agencies</button>
+        <button class="nav-link" data-nav="warehouses"><span class="nav-icon">▥</span>Warehouses</button>
+        <button class="nav-link" data-nav="schedule"><span class="nav-icon">▦</span>Shift plan</button>
+        <button class="nav-link" data-nav="attendance"><span class="nav-icon">✓</span>Attendance</button>
+        <button class="nav-link" data-nav="reviews"><span class="nav-icon">◷</span>Cancellation reviews <span class="nav-count" id="reviewNavCount">0</span></button>
+        <button class="nav-link" data-nav="reports"><span class="nav-icon">▤</span>Reports</button>
+        <p class="nav-caption nav-caption-spaced">MANAGE</p>
+        <button class="nav-link" data-nav="updates"><span class="nav-icon">◉</span>WhatsApp updates</button>
+        <button class="nav-link" data-nav="settings"><span class="nav-icon">⚙</span>Rules & settings</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="help-card"><span class="help-spark">✳</span><b>Need a hand?</b><p>See how Shiftmate keeps every shift covered.</p><button data-action="help">Open quick guide <span>↗</span></button></div>
+        <button class="profile-button" data-action="profile"><span class="avatar avatar-navy">NB</span><span><b>Nur Badariah</b><small>Workspace admin</small></span><span class="profile-more">•••</span></button>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div class="topbar-left"><button class="icon-button menu-button" id="menuButton" aria-label="Open navigation">☰</button><div class="breadcrumb"><span>Workspace</span><b>/</b><strong id="currentSection">Overview</strong></div></div>
+        <div class="topbar-actions"><span class="today-label" id="todayLabel"></span><button class="icon-button notification-button" aria-label="Notifications" data-action="notifications">♧<i></i></button><button class="avatar avatar-top" aria-label="Account menu" data-action="profile">NB</button></div>
+      </header>
+
+      <section class="page-wrap" id="pageContent" aria-live="polite"></section>
+    </main>
+  </div>
+  <div class="modal-root" id="modalRoot"></div>
+  <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
